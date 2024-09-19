@@ -15,7 +15,10 @@ export class PdfToImageService {
     private readonly uploadUrl = 'http://192.168.1.74:3008/minio/upload';
     private readonly axiosTimeout = 0; // Tempo limite infinito
 
-    async convertPdfToImage(pdfPath: string, outputDir: string): Promise<void> {
+    async convertPdfToImage(
+        pdfPath: string,
+        outputDir: string,
+    ): Promise<any[]> {
         const mimeType = mime.lookup(pdfPath);
         if (mimeType !== 'application/pdf') {
             throw new BadRequestException(
@@ -32,8 +35,12 @@ export class PdfToImageService {
 
         try {
             child_process.execSync(command);
-            await this.uploadImagesFromDirectory(outputDir, outputPrefix);
+            const uploadResults = await this.uploadImagesFromDirectory(
+                outputDir,
+                outputPrefix,
+            );
             this.cleanUp(pdfPath, outputDir);
+            return uploadResults; // Retorna os resultados do upload
         } catch (error) {
             throw new InternalServerErrorException(
                 `Erro ao converter PDF: ${error.message}`,
@@ -44,7 +51,7 @@ export class PdfToImageService {
     private async uploadImagesFromDirectory(
         outputDir: string,
         outputPrefix: string,
-    ): Promise<void> {
+    ): Promise<any[]> {
         const files = fs
             .readdirSync(outputDir)
             .filter(
@@ -52,13 +59,18 @@ export class PdfToImageService {
                     file.startsWith(outputPrefix) && file.endsWith('.png'),
             );
 
+        const results = [];
+
         for (const file of files) {
             const imagePath = path.join(outputDir, file);
-            await this.uploadImage(imagePath);
+            const uploadResult = await this.uploadImage(imagePath);
+            results.push(uploadResult); // Adiciona o resultado do upload ao array
         }
+
+        return results; // Retorna todos os resultados
     }
 
-    private async uploadImage(imagePath: string): Promise<void> {
+    private async uploadImage(imagePath: string): Promise<any> {
         const mimeType = mime.lookup(imagePath);
         if (mimeType !== 'image/png') {
             throw new BadRequestException(
@@ -75,11 +87,11 @@ export class PdfToImageService {
         const maxRetries = 3;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                await axios.post(this.uploadUrl, form, {
+                const response = await axios.post(this.uploadUrl, form, {
                     headers: { ...form.getHeaders() },
                     timeout: this.axiosTimeout, // Tempo limite infinito
                 });
-                return;
+                return response.data; // Retorna a resposta do servidor
             } catch (error) {
                 console.error(
                     `Erro ao enviar ${imagePath} (tentativa ${attempt + 1}): ${error.message}`,

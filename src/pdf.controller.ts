@@ -69,9 +69,14 @@ export class PdfController {
         const outputDir = './temp'; // Diretório temporário para armazenar imagens
 
         try {
-            await this.pdfToImageService.convertPdfToImage(pdfPath, outputDir);
+            const uploadResults =
+                await this.pdfToImageService.convertPdfToImage(
+                    pdfPath,
+                    outputDir,
+                );
             return {
                 message: 'PDF convertido e imagens enviadas com sucesso!',
+                results: uploadResults, // Retorna os resultados do upload
             };
         } catch (error) {
             throw new InternalServerErrorException(

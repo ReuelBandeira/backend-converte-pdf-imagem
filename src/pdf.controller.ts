@@ -58,8 +58,11 @@ export class PdfController {
         }),
     )
     async uploadAndConvert(@UploadedFile() file: Express.Multer.File) {
-        if (!file) {
-            throw new BadRequestException('Nenhum arquivo PDF enviado');
+        // Verificação do tipo MIME do arquivo
+        if (file.mimetype !== 'application/pdf') {
+            throw new BadRequestException(
+                'O arquivo enviado não é um PDF válido',
+            );
         }
 
         const pdfPath = file.path;

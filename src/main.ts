@@ -5,8 +5,8 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-    // Aumentar o timeout do servidor HTTP para 15 minutos
-    app.getHttpServer().setTimeout(900000); // 15 minutos
+    // Remover a configuração de timeout para permitir tempo infinito
+    app.getHttpServer().setTimeout(0); // 0 significa sem limite
 
     await app.listen(3005);
 }

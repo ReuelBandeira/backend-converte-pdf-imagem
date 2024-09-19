@@ -9,6 +9,7 @@ import * as path from 'path';
 import axios from 'axios';
 import * as FormData from 'form-data';
 import * as mime from 'mime-types';
+import * as pdf from 'pdf-parse';
 
 @Injectable()
 export class PdfToImageService {
@@ -25,6 +26,12 @@ export class PdfToImageService {
                 'O arquivo enviado não é um PDF válido',
             );
         }
+
+        // Ler o conteúdo do PDF e logar
+        const pdfDataBuffer = fs.readFileSync(pdfPath);
+        const pdfData = await pdf(pdfDataBuffer);
+        console.log('Conteúdo do PDF:', pdfData.text); // Logar o conteúdo do PDF
+        // Ler o conteúdo do PDF e logar
 
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });

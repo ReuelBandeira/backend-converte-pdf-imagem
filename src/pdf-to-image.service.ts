@@ -24,16 +24,22 @@ export class PdfToImageService {
             // Executa o comando no sistema
             child_process.execSync(command);
 
-            // Busca as imagens geradas no diretório de saída
+            // Busca as imagens geradas no diretório de saída e as ordena pela numeração
             const imageFiles = fs
                 .readdirSync(outputDir)
                 .filter(
                     (file) =>
                         file.startsWith(outputPrefix) && file.endsWith('.png'),
                 )
-                .map((file) => path.join(outputDir, file));
+                .map((file) => path.join(outputDir, file))
+                .sort((a, b) => {
+                    // Extrai o número da página do nome do arquivo usando regex
+                    const pageA = this.extractPageNumber(a);
+                    const pageB = this.extractPageNumber(b);
+                    return pageA - pageB;
+                });
 
-            // Envia cada imagem para o servidor
+            // Envia cada imagem para o servidor na ordem correta
             await Promise.all(imageFiles.map((file) => this.uploadImage(file)));
 
             // Limpa os arquivos temporários
@@ -43,6 +49,13 @@ export class PdfToImageService {
                 `Erro ao converter PDF para imagens: ${error.message}`,
             );
         }
+    }
+
+    // Função para extrair o número da página do nome do arquivo
+    private extractPageNumber(filePath: string): number {
+        const fileName = path.basename(filePath);
+        const match = fileName.match(/-(\d+)\.png$/); // Captura o número da página após um hífen e antes de ".png"
+        return match ? parseInt(match[1], 10) : 0; // Retorna o número da página, ou 0 se não encontrar
     }
 
     private async uploadImage(imagePath: string): Promise<void> {

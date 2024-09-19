@@ -11,6 +11,7 @@ import { diskStorage } from 'multer';
 import * as path from 'path';
 import { PdfToImageService } from './pdf-to-image.service';
 import { Request } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 
 @Controller('pdf')
 export class PdfController {
@@ -22,11 +23,14 @@ export class PdfController {
             storage: diskStorage({
                 destination: './uploads/pdf', // Pasta temporária para armazenar o PDF
                 filename: (req, file, cb) => {
+                    // Gera um UUID para garantir que o nome do arquivo seja único
+                    const uniqueSuffix = uuidv4();
                     const filename = path
                         .parse(file.originalname)
                         .name.replace(/\s+/g, '_');
                     const extension = path.parse(file.originalname).ext;
-                    cb(null, `${filename}${extension}`);
+                    // Cria o nome do arquivo com o UUID anexado
+                    cb(null, `${filename}_${uniqueSuffix}${extension}`);
                 },
             }),
             fileFilter: (

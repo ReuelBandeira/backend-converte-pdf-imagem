@@ -59,7 +59,7 @@ export class PdfToImageService {
                     ...form.getHeaders(), // Adiciona os headers necessários para o FormData
                 },
             });
-            console.log(`Imagem enviada com sucesso: ${imagePath}`);
+            // console.log(`Imagem enviada com sucesso: ${imagePath}`);
         } catch (error) {
             console.error(`Erro ao enviar ${imagePath}: ${error.message}`);
             throw error; // Repassa o erro para tratamento em Promise.all
@@ -70,6 +70,6 @@ export class PdfToImageService {
         // Remove o PDF e as imagens temporárias
         fs.unlinkSync(pdfPath);
         imageFiles.forEach((file) => fs.unlinkSync(file));
-        fs.rmdirSync(outputDir, { recursive: true });
+        fs.rmSync(outputDir, { recursive: true, force: true });
     }
 }

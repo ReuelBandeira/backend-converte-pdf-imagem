@@ -10,11 +10,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as path from 'path';
 import { PdfToImageService } from './pdf-to-image.service';
+import { Request } from 'express';
 
 @Controller('pdf')
 export class PdfController {
-    private readonly uploadUrl = 'http://192.168.1.74:3008/minio/upload'; // URL para onde as imagens serão enviadas
-
     constructor(private readonly pdfToImageService: PdfToImageService) {}
 
     @Post('/upload')
@@ -30,11 +29,33 @@ export class PdfController {
                     cb(null, `${filename}${extension}`);
                 },
             }),
+            fileFilter: (
+                req: Request,
+                file: Express.Multer.File,
+                cb: (error: Error | null, acceptFile: boolean) => void,
+            ) => {
+                // Verifica a extensão do arquivo
+                if (!file.originalname.match(/\.(pdf)$/)) {
+                    return cb(
+                        new BadRequestException(
+                            'Apenas arquivos PDF são permitidos',
+                        ),
+                        false,
+                    );
+                }
+                cb(null, true);
+            },
         }),
     )
     async uploadAndConvert(@UploadedFile() file: Express.Multer.File) {
+        // Verifica se o arquivo foi enviado
         if (!file) {
-            throw new BadRequestException('Nenhum arquivo enviado');
+            throw new BadRequestException('Nenhum arquivo PDF enviado');
+        }
+
+        // Verifica se o arquivo é um PDF
+        if (!file.originalname.match(/\.(pdf)$/)) {
+            throw new BadRequestException('O arquivo enviado não é um PDF');
         }
 
         const pdfPath = file.path;

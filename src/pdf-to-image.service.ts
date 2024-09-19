@@ -7,55 +7,52 @@ import * as FormData from 'form-data';
 
 @Injectable()
 export class PdfToImageService {
-    private readonly uploadUrl = 'http://192.168.1.74:3008/minio/upload'; // URL para onde as imagens serão enviadas
+    private readonly uploadUrl = 'http://192.168.1.74:3008/minio/upload';
+    private readonly maxConcurrentUploads = 5; // Aumente conforme necessário
+    private readonly axiosTimeout = 1200000; // 20 minutos
 
     async convertPdfToImage(pdfPath: string, outputDir: string): Promise<void> {
-        // Verifica se o diretório de saída existe, senão cria
+        // Criação do diretório de saída se não existir
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
         }
 
         const outputPrefix = path.basename(pdfPath, path.extname(pdfPath));
-
-        // Executa o comando pdftoppm para converter o PDF para imagens
         const command = `pdftoppm -png ${pdfPath} ${path.join(outputDir, outputPrefix)}`;
 
         try {
-            // Executa o comando no sistema
             child_process.execSync(command);
-
-            // Busca as imagens geradas no diretório de saída e as ordena pela numeração
-            const imageFiles = fs
-                .readdirSync(outputDir)
-                .filter(
-                    (file) =>
-                        file.startsWith(outputPrefix) && file.endsWith('.png'),
-                )
-                .map((file) => path.join(outputDir, file))
-                .sort((a, b) => {
-                    // Extrai o número da página do nome do arquivo usando regex
-                    const pageA = this.extractPageNumber(a);
-                    const pageB = this.extractPageNumber(b);
-                    return pageA - pageB;
-                });
-
-            // Envia cada imagem para o servidor na ordem correta
-            await Promise.all(imageFiles.map((file) => this.uploadImage(file)));
-
-            // Limpa os arquivos temporários
+            const imageFiles = this.getImageFiles(outputDir, outputPrefix);
+            await this.uploadImagesInBatches(imageFiles);
             this.cleanUp(pdfPath, imageFiles, outputDir);
         } catch (error) {
             throw new InternalServerErrorException(
-                `Erro ao converter PDF para imagens: ${error.message}`,
+                `Erro ao converter PDF: ${error.message}`,
             );
         }
     }
 
-    // Função para extrair o número da página do nome do arquivo
+    private getImageFiles(outputDir: string, outputPrefix: string): string[] {
+        return fs
+            .readdirSync(outputDir)
+            .filter(
+                (file) =>
+                    file.startsWith(outputPrefix) && file.endsWith('.png'),
+            )
+            .map((file) => path.join(outputDir, file))
+            .sort(
+                (a, b) => this.extractPageNumber(a) - this.extractPageNumber(b),
+            );
+    }
+
     private extractPageNumber(filePath: string): number {
         const fileName = path.basename(filePath);
-        const match = fileName.match(/-(\d+)\.png$/); // Captura o número da página após um hífen e antes de ".png"
-        return match ? parseInt(match[1], 10) : 0; // Retorna o número da página, ou 0 se não encontrar
+        const match = fileName.match(/-(\d+)\.png$/);
+        return match ? parseInt(match[1], 10) : 0;
+    }
+
+    private async uploadImagesInBatches(imageFiles: string[]): Promise<void> {
+        await Promise.all(imageFiles.map((file) => this.uploadImage(file)));
     }
 
     private async uploadImage(imagePath: string): Promise<void> {
@@ -66,21 +63,26 @@ export class PdfToImageService {
             path.basename(imagePath),
         );
 
-        try {
-            const response = await axios.post(this.uploadUrl, form, {
-                headers: {
-                    ...form.getHeaders(), // Adiciona os headers necessários para o FormData
-                },
-            });
-            // console.log(`Imagem enviada com sucesso: ${imagePath}`);
-        } catch (error) {
-            console.error(`Erro ao enviar ${imagePath}: ${error.message}`);
-            throw error; // Repassa o erro para tratamento em Promise.all
+        const maxRetries = 3;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                await axios.post(this.uploadUrl, form, {
+                    headers: { ...form.getHeaders() },
+                    timeout: this.axiosTimeout,
+                });
+                return; // Sai da função se o upload for bem-sucedido
+            } catch (error) {
+                console.error(
+                    `Erro ao enviar ${imagePath} (tentativa ${attempt + 1}): ${error.message}`,
+                );
+                if (attempt === maxRetries - 1) {
+                    throw error; // Lança o erro na última tentativa
+                }
+            }
         }
     }
 
     private cleanUp(pdfPath: string, imageFiles: string[], outputDir: string) {
-        // Remove o PDF e as imagens temporárias
         fs.unlinkSync(pdfPath);
         imageFiles.forEach((file) => fs.unlinkSync(file));
         fs.rmSync(outputDir, { recursive: true, force: true });

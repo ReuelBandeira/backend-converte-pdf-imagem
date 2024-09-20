@@ -9,12 +9,13 @@ import * as path from 'path';
 import axios from 'axios';
 import * as FormData from 'form-data';
 import * as mime from 'mime-types';
-import * as pdf from 'pdf-parse';
 
 @Injectable()
 export class PdfToImageService {
     private readonly uploadUrl = 'http://192.168.1.74:3008/minio/upload';
     private readonly axiosTimeout = 0; // Tempo limite infinito
+    private readonly searchString = 'INSTRUÇÃO DE TRABALHO';
+    private readonly exclusionString = 'Histórico de Registros de Alterações';
 
     async convertPdfToImage(
         pdfPath: string,
@@ -27,54 +28,70 @@ export class PdfToImageService {
             );
         }
 
-        // Ler o conteúdo do PDF e logar
-        const pdfDataBuffer = fs.readFileSync(pdfPath);
-        const pdfData = await pdf(pdfDataBuffer);
-        console.log('Conteúdo do PDF:', pdfData.text); // Logar o conteúdo do PDF
-        // Ler o conteúdo do PDF e logar
-
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
         }
 
         const outputPrefix = path.basename(pdfPath, path.extname(pdfPath));
-        const command = `pdftoppm -png ${pdfPath} ${path.join(outputDir, outputPrefix)}`;
+        const totalPages = this.getPdfPageCount(pdfPath);
+        const uploadResults = [];
 
-        try {
-            child_process.execSync(command);
-            const uploadResults = await this.uploadImagesFromDirectory(
-                outputDir,
-                outputPrefix,
-            );
-            this.cleanUp(pdfPath, outputDir);
-            return uploadResults; // Retorna os resultados do upload
-        } catch (error) {
-            throw new InternalServerErrorException(
-                `Erro ao converter PDF: ${error.message}`,
-            );
+        const normalizedSearchString = this.normalizeString(this.searchString);
+        const normalizedExclusionString = this.normalizeString(
+            this.exclusionString,
+        );
+
+        for (let page = 1; page <= totalPages; page++) {
+            const pageText = this.extractPageText(pdfPath, page);
+            const normalizedPageText = this.normalizeString(pageText);
+
+            // Verifica se a página contém a string de exclusão
+            if (normalizedPageText.includes(normalizedExclusionString)) {
+                console.log(
+                    `Página ${page} excluída por conter: "${this.exclusionString}"`,
+                );
+                continue; // Pula para a próxima página
+            }
+
+            // Verifica se a página contém a string de inclusão
+            if (normalizedPageText.includes(normalizedSearchString)) {
+                const command = `pdftoppm -png -f ${page} -l ${page} ${pdfPath} ${path.join(outputDir, outputPrefix)}`;
+                try {
+                    child_process.execSync(command);
+                    const imagePath = path.join(
+                        outputDir,
+                        `${outputPrefix}-${page}.png`,
+                    );
+                    const uploadResult = await this.uploadImage(imagePath);
+                    uploadResults.push(uploadResult);
+                } catch (error) {
+                    console.error(
+                        `Erro ao converter página ${page}: ${error.message}`,
+                    );
+                }
+            }
         }
+
+        this.cleanUp(pdfPath, outputDir);
+        return uploadResults; // Retorna os resultados do upload
     }
 
-    private async uploadImagesFromDirectory(
-        outputDir: string,
-        outputPrefix: string,
-    ): Promise<any[]> {
-        const files = fs
-            .readdirSync(outputDir)
-            .filter(
-                (file) =>
-                    file.startsWith(outputPrefix) && file.endsWith('.png'),
-            );
+    private getPdfPageCount(pdfPath: string): number {
+        const command = `pdfinfo ${pdfPath} | grep Pages | awk '{print $2}'`;
+        return parseInt(child_process.execSync(command).toString().trim(), 10);
+    }
 
-        const results = [];
+    private extractPageText(pdfPath: string, page: number): string {
+        const command = `pdftotext -f ${page} -l ${page} ${pdfPath} -`;
+        return child_process.execSync(command).toString();
+    }
 
-        for (const file of files) {
-            const imagePath = path.join(outputDir, file);
-            const uploadResult = await this.uploadImage(imagePath);
-            results.push(uploadResult); // Adiciona o resultado do upload ao array
-        }
-
-        return results; // Retorna todos os resultados
+    private normalizeString(input: string): string {
+        return input
+            .normalize('NFD') // Normaliza para decompor acentuações
+            .replace(/[\u0300-\u036f]/g, '') // Remove acentuações
+            .replace(/\s+/g, '') // Remove espaços em branco
+            .toLowerCase(); // Converte para minúsculas
     }
 
     private async uploadImage(imagePath: string): Promise<any> {
@@ -96,7 +113,7 @@ export class PdfToImageService {
             try {
                 const response = await axios.post(this.uploadUrl, form, {
                     headers: { ...form.getHeaders() },
-                    timeout: this.axiosTimeout, // Tempo limite infinito
+                    timeout: this.axiosTimeout,
                 });
                 return response.data; // Retorna a resposta do servidor
             } catch (error) {

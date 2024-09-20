@@ -17,12 +17,6 @@ import { v4 as uuidv4 } from 'uuid';
 export class PdfController {
     constructor(private readonly pdfToImageService: PdfToImageService) {}
 
-    // Teste(filename: string): boolean {
-    //     const allowedExtensions = ['pdf'];
-    //     const ext = filename.split('.').pop()?.toLowerCase() || ''; // Uso do encadeamento opcional
-    //     return allowedExtensions.includes(ext);
-    // }
-
     @Post('/upload')
     @UseInterceptors(
         FileInterceptor('file', {
@@ -42,34 +36,13 @@ export class PdfController {
                 file: Express.Multer.File,
                 cb: (error: Error | null, acceptFile: boolean) => void,
             ) => {
-                console.log('teste', file.originalname);
+                // console.log('teste', file.originalname);
                 if (!file) {
                     return cb(
                         new BadRequestException('Nenhum arquivo foi enviado.'),
                         false,
                     );
                 }
-                // const sanitizedFilename = file.originalname.replace(/\s+/g, '');
-
-                // console.log('sanitizedFilename', sanitizedFilename);
-                // if (!this.Teste(sanitizedFilename)) {
-                //     return cb(
-                //         new BadRequestException(
-                //             'Invalid file type. Only PDF files are allowed.',
-                //         ),
-                //         false,
-                //     );
-                // }
-
-                // const maxSize = 5 * 1024 * 1024; // 5 MB
-                // if (file.size > maxSize) {
-                //     return cb(
-                //         new BadRequestException(
-                //             'O arquivo deve ter no máximo 5 MB',
-                //         ),
-                //         false,
-                //     );
-                // }
 
                 cb(null, true);
             },
@@ -80,8 +53,6 @@ export class PdfController {
         if (!file) {
             throw new BadRequestException('Nenhum arquivo foi enviado.');
         }
-
-        // console.log('TESTE', file.mimetype);
 
         // Verificação do tipo MIME do arquivo
         if (file.mimetype !== 'application/pdf') {

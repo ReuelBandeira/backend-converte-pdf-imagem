@@ -62,8 +62,7 @@ export class PdfToImageService {
                         outputDir,
                         `${outputPrefix}-${page}.png`,
                     );
-                    const uploadResult = await this.uploadImage(imagePath);
-                    uploadResults.push(uploadResult);
+                    uploadResults.push(imagePath); // Armazena o caminho da imagem na ordem correta
                 } catch (error) {
                     console.error(
                         `Erro ao converter página ${page}: ${error.message}`,
@@ -72,8 +71,15 @@ export class PdfToImageService {
             }
         }
 
+        // Envia as imagens na ordem correta (primeiro a última adicionada)
+        const results = [];
+        for (let i = uploadResults.length - 1; i >= 0; i--) {
+            const uploadResult = await this.uploadImage(uploadResults[i]);
+            results.push(uploadResult); // Armazena os resultados dos uploads
+        }
+
         this.cleanUp(pdfPath, outputDir);
-        return uploadResults; // Retorna os resultados do upload
+        return results; // Retorna os resultados do upload
     }
 
     private getPdfPageCount(pdfPath: string): number {
@@ -88,8 +94,6 @@ export class PdfToImageService {
 
     private normalizeString(input: string): string {
         return input
-            .normalize('NFD') // Normaliza para decompor acentuações
-            .replace(/[\u0300-\u036f]/g, '') // Remove acentuações
             .replace(/\s+/g, '') // Remove espaços em branco
             .toLowerCase(); // Converte para minúsculas
     }

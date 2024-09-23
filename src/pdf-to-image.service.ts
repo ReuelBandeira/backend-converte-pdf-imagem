@@ -1,8 +1,4 @@
-import {
-    Injectable,
-    InternalServerErrorException,
-    BadRequestException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,10 +24,6 @@ export class PdfToImageService {
             );
         }
 
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-
         const outputPrefix = path.basename(pdfPath, path.extname(pdfPath));
         const totalPages = this.getPdfPageCount(pdfPath);
         const uploadResults = [];
@@ -41,45 +33,75 @@ export class PdfToImageService {
             this.exclusionString,
         );
 
+        const sopsFinded = [];
+
         for (let page = 1; page <= totalPages; page++) {
             const pageText = this.extractPageText(pdfPath, page);
             const normalizedPageText = this.normalizeString(pageText);
 
-            // Verifica se a página contém a string de exclusão
-            if (normalizedPageText.includes(normalizedExclusionString)) {
-                console.log(
-                    `Página ${page} excluída por conter: "${this.exclusionString}"`,
-                );
-                continue; // Pula para a próxima página
-            }
+            if (normalizedPageText.includes(normalizedExclusionString))
+                continue;
 
-            // Verifica se a página contém a string de inclusão
-            if (normalizedPageText.includes(normalizedSearchString)) {
-                const command = `pdftoppm -png -f ${page} -l ${page} ${pdfPath} ${path.join(outputDir, outputPrefix)}`;
+            if (normalizedPageText.includes(normalizedSearchString))
+                sopsFinded.push(page);
+        }
+        console.log(...sopsFinded);
+        await Promise.all(
+            sopsFinded.map(async (page) => {
                 try {
-                    child_process.execSync(command);
-                    const imagePath = path.join(
-                        outputDir,
+                    const pngBuffer = await this.convertPageToPngBuffer(
+                        pdfPath,
+                        page,
+                    );
+                    const uploadResult = await this.uploadImageBuffer(
+                        pngBuffer,
                         `${outputPrefix}-${page}.png`,
                     );
-                    uploadResults.push(imagePath); // Armazena o caminho da imagem na ordem correta
+                    uploadResults.push(uploadResult);
                 } catch (error) {
                     console.error(
-                        `Erro ao converter página ${page}: ${error.message}`,
+                        `Erro ao converter ou fazer upload da página ${page}: ${error.message}`,
                     );
                 }
-            }
-        }
-
-        // Envia as imagens na ordem correta (primeiro a última adicionada)
-        const results = [];
-        for (let i = uploadResults.length - 1; i >= 0; i--) {
-            const uploadResult = await this.uploadImage(uploadResults[i]);
-            results.push(uploadResult); // Armazena os resultados dos uploads
-        }
+            }),
+        );
 
         this.cleanUp(pdfPath, outputDir);
-        return results; // Retorna os resultados do upload
+        return uploadResults; // Retorna os resultados do upload
+    }
+
+    async convertPageToPngBuffer(
+        pdfPath: string,
+        page: number,
+    ): Promise<Buffer> {
+        return new Promise((resolve, reject) => {
+            const command = `pdftoppm -png -f ${page} -l ${page} ${pdfPath}`;
+            const args = command.split(' ');
+
+            const process = child_process.spawn(args[0], args.slice(1));
+
+            let buffer = [];
+
+            process.stdout.on('data', (data) => {
+                buffer.push(data); // Coleta os dados da imagem em um buffer
+            });
+
+            process.stderr.on('data', (data) => {
+                console.error(`Erro na conversão da página ${page}: ${data}`);
+            });
+
+            process.on('close', (code) => {
+                if (code === 0) {
+                    resolve(Buffer.concat(buffer)); // Junta os dados em um buffer único
+                } else {
+                    reject(
+                        new Error(
+                            `Processo de conversão finalizado com código: ${code}`,
+                        ),
+                    );
+                }
+            });
+        });
     }
 
     private getPdfPageCount(pdfPath: string): number {
@@ -98,36 +120,31 @@ export class PdfToImageService {
             .toLowerCase(); // Converte para minúsculas
     }
 
-    private async uploadImage(imagePath: string): Promise<any> {
-        const mimeType = mime.lookup(imagePath);
-        if (mimeType !== 'image/png') {
-            throw new BadRequestException(
-                `O arquivo ${imagePath} não é uma imagem PNG válida`,
-            );
-        }
-
+    private async uploadImageBuffer(
+        pngBuffer: Buffer,
+        filename: string,
+    ): Promise<any> {
         const form = new FormData();
-        form.append('file', fs.createReadStream(imagePath), {
-            filename: path.basename(imagePath),
-            contentType: mimeType,
-        });
+        form.append('file', pngBuffer, { filename, contentType: 'image/png' });
 
-        const maxRetries = 3;
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-                const response = await axios.post(this.uploadUrl, form, {
-                    headers: { ...form.getHeaders() },
-                    timeout: this.axiosTimeout,
-                });
-                return response.data; // Retorna a resposta do servidor
-            } catch (error) {
-                console.error(
-                    `Erro ao enviar ${imagePath} (tentativa ${attempt + 1}): ${error.message}`,
-                );
-                if (attempt === maxRetries - 1) {
-                    throw error;
+        try {
+            const maxRetries = 3;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await axios.post(this.uploadUrl, form, {
+                        headers: { ...form.getHeaders() },
+                        timeout: this.axiosTimeout,
+                    });
+                    return response.data;
+                } catch (error) {
+                    if (attempt === maxRetries - 1) throw error;
                 }
             }
+        } catch (error) {
+            console.error(
+                `Erro ao fazer upload da imagem ${filename}: ${error.message}`,
+            );
+            throw error;
         }
     }
 
